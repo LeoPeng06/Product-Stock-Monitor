@@ -13,10 +13,10 @@ from io import BytesIO
 
 # Set page config
 st.set_page_config(
-    page_title="Web Scraper & Stock Monitor",
-    page_icon="🌐",
+    pageTitle="Web Scraper & Stock Monitor",
+    pageIcon="🌐",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initialSidebarState="expanded"
 )
 
 # Custom CSS
@@ -29,20 +29,20 @@ st.markdown("""
         width: 100%;
         margin-top: 1rem;
     }
-    .product-card {
+    .productCard {
         background-color: #f0f2f6;
         padding: 1.5rem;
         border-radius: 10px;
         margin-bottom: 1rem;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    .status-in-stock {
+    .statusInStock {
         color: #00b894;
     }
-    .status-out-of-stock {
+    .statusOutOfStock {
         color: #d63031;
     }
-    .scrape-result {
+    .scrapeResult {
         background-color: #ffffff;
         padding: 1rem;
         border-radius: 5px;
@@ -51,7 +51,7 @@ st.markdown("""
         max-height: 400px;
         overflow-y: auto;
     }
-    .product-image {
+    .productImage {
         max-width: 100%;
         height: auto;
         border-radius: 5px;
@@ -60,7 +60,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-def load_image_from_url(url):
+def loadImageFromUrl(url):
     """Load image from URL and return PIL Image object"""
     try:
         response = requests.get(url)
@@ -77,15 +77,15 @@ if 'products' not in st.session_state:
     st.session_state.products = []
 if 'monitoring' not in st.session_state:
     st.session_state.monitoring = False
-if 'scrape_results' not in st.session_state:
-    st.session_state.scrape_results = {}
+if 'scrapeResults' not in st.session_state:
+    st.session_state.scrapeResults = {}
 
-def save_products():
+def saveProducts():
     """Save products to a JSON file"""
     with open('products.json', 'w') as f:
         json.dump(st.session_state.products, f)
 
-def load_products():
+def loadProducts():
     """Load products from JSON file"""
     try:
         if os.path.exists('products.json'):
@@ -104,7 +104,7 @@ def load_products():
 
 # Load saved products
 if not st.session_state.products:
-    st.session_state.products = load_products()
+    st.session_state.products = loadProducts()
 
 # Sidebar
 with st.sidebar:
@@ -117,58 +117,58 @@ with st.sidebar:
     if tab == "Stock Monitor":
         # Add new product form
         st.subheader("Add New Product")
-        with st.form("add_product"):
+        with st.form("addProduct"):
             name = st.text_input("Product Name")
             url = st.text_input("Product URL")
-            is_dynamic = st.checkbox("Is Dynamic Website?")
-            stock_indicator = st.text_input("Stock Indicator Text", "in stock")
-            element_selector = st.text_input("Element Selector (for dynamic sites)", "#stock-status")
-            check_interval = st.number_input("Check Interval (seconds)", min_value=60, value=300, step=60)
+            isDynamic = st.checkbox("Is Dynamic Website?")
+            stockIndicator = st.text_input("Stock Indicator Text", "in stock")
+            elementSelector = st.text_input("Element Selector (for dynamic sites)", "#stock-status")
+            checkInterval = st.number_input("Check Interval (seconds)", min_value=60, value=300, step=60)
             
             if st.form_submit_button("Add Product"):
                 if name and url:
-                    new_product = {
+                    newProduct = {
                         "name": name,
                         "url": url,
-                        "is_dynamic": is_dynamic,
-                        "stock_indicator": stock_indicator,
-                        "element_selector": element_selector,
-                        "check_interval": check_interval,
-                        "last_checked": None,
+                        "isDynamic": isDynamic,
+                        "stockIndicator": stockIndicator,
+                        "elementSelector": elementSelector,
+                        "checkInterval": checkInterval,
+                        "lastChecked": None,
                         "status": "Not Checked",
-                        "image_url": None
+                        "imageUrl": None
                     }
-                    st.session_state.products.append(new_product)
-                    save_products()
+                    st.session_state.products.append(newProduct)
+                    saveProducts()
                     st.success("Product added successfully!")
                     st.rerun()
     
     else:  # Web Scraper tab
         st.subheader("Web Scraper")
-        with st.form("scrape_url"):
+        with st.form("scrapeUrl"):
             url = st.text_input("URL to Scrape")
-            use_proxy = st.checkbox("Use Proxy (Bright Data)", value=True)
-            clean_text = st.checkbox("Clean Text Output", value=True)
+            useProxy = st.checkbox("Use Proxy (Bright Data)", value=True)
+            cleanText = st.checkbox("Clean Text Output", value=True)
             
             if st.form_submit_button("Scrape"):
                 if url:
                     with st.spinner("Scraping in progress..."):
                         try:
-                            if use_proxy:
+                            if useProxy:
                                 html = scrapeSite(url)
                             else:
                                 response = requests.get(url)
                                 html = response.text
                             
-                            if clean_text:
-                                body_content = extract_html(html)
-                                if body_content:
-                                    clean_content = cleanBody(body_content)
-                                    st.session_state.scrape_results[url] = clean_content
+                            if cleanText:
+                                bodyContent = extract_html(html)
+                                if bodyContent:
+                                    cleanContent = cleanBody(bodyContent)
+                                    st.session_state.scrapeResults[url] = cleanContent
                                 else:
                                     st.error("Could not extract body content")
                             else:
-                                st.session_state.scrape_results[url] = html
+                                st.session_state.scrapeResults[url] = html
                             
                             st.success("Scraping completed!")
                         except Exception as e:
@@ -202,20 +202,19 @@ if tab == "Stock Monitor":
                 
                 with col1:
                     # Get product image
-                    image_html = ""
-                    if product.get('image_url'):
-                        image = load_image_from_url(product['image_url'])
+                    if product.get('imageUrl'):
+                        image = loadImageFromUrl(product['imageUrl'])
                         if image:
                             st.image(image, caption=product['name'], use_column_width=True)
                     
                     st.markdown(f"""
-                        <div class="product-card">
+                        <div class="productCard">
                             <h3>{product['name']}</h3>
                             <p>URL: {product['url']}</p>
-                            <p>Type: {'Dynamic' if product['is_dynamic'] else 'Static'}</p>
-                            <p>Check Interval: {product['check_interval']} seconds</p>
-                            <p>Last Checked: {product['last_checked'] or 'Never'}</p>
-                            <p class="{'status-in-stock' if product['status'] == 'In Stock' else 'status-out-of-stock'}">
+                            <p>Type: {'Dynamic' if product['isDynamic'] else 'Static'}</p>
+                            <p>Check Interval: {product['checkInterval']} seconds</p>
+                            <p>Last Checked: {product['lastChecked'] or 'Never'}</p>
+                            <p class="{'statusInStock' if product['status'] == 'In Stock' else 'statusOutOfStock'}">
                                 Status: {product['status']}
                             </p>
                         </div>
@@ -223,13 +222,13 @@ if tab == "Stock Monitor":
                 
                 with col2:
                     if st.button("Edit", key=f"edit_{i}"):
-                        st.session_state.editing_product = i
+                        st.session_state.editingProduct = i
                         st.rerun()
                 
                 with col3:
                     if st.button("Delete", key=f"delete_{i}"):
                         st.session_state.products.pop(i)
-                        save_products()
+                        saveProducts()
                         st.rerun()
     
     # Monitoring logic
@@ -237,54 +236,54 @@ if tab == "Stock Monitor":
         while True:
             for product in st.session_state.products:
                 try:
-                    if product['is_dynamic']:
-                        is_in_stock = st.session_state.monitor.check_stock_dynamic(
+                    if product['isDynamic']:
+                        isInStock = st.session_state.monitor.checkStockDynamic(
                             product['url'],
-                            product['stock_indicator'],
-                            product['element_selector']
+                            product['stockIndicator'],
+                            product['elementSelector']
                         )
-                        image_url = st.session_state.monitor.extract_image_dynamic(product['url'])
+                        imageUrl = st.session_state.monitor.extractImageDynamic(product['url'])
                     else:
-                        is_in_stock = st.session_state.monitor.check_stock_static(
+                        isInStock = st.session_state.monitor.checkStockStatic(
                             product['url'],
-                            product['stock_indicator']
+                            product['stockIndicator']
                         )
-                        image_url = st.session_state.monitor.extract_image_static(product['url'])
+                        imageUrl = st.session_state.monitor.extractImageStatic(product['url'])
                     
-                    product['last_checked'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    product['status'] = "In Stock" if is_in_stock else "Out of Stock"
-                    product['image_url'] = image_url
+                    product['lastChecked'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    product['status'] = "In Stock" if isInStock else "Out of Stock"
+                    product['imageUrl'] = imageUrl
                     
-                    if is_in_stock and product.get('last_status') != "In Stock":
-                        st.session_state.monitor.send_notification(product['name'], product['url'])
+                    if isInStock and product.get('lastStatus') != "In Stock":
+                        st.session_state.monitor.sendNotification(product['name'], product['url'])
                     
-                    product['last_status'] = product['status']
-                    save_products()
+                    product['lastStatus'] = product['status']
+                    saveProducts()
                     
                 except Exception as e:
                     st.error(f"Error checking {product['name']}: {str(e)}")
                     product['status'] = "Error"
-                    save_products()
+                    saveProducts()
             
-            time.sleep(min(p['check_interval'] for p in st.session_state.products))
+            time.sleep(min(p['checkInterval'] for p in st.session_state.products))
             st.rerun()
 
 else:  # Web Scraper tab
     st.title("Web Scraping Results")
     
-    if not st.session_state.scrape_results:
+    if not st.session_state.scrapeResults:
         st.info("No scraping results yet. Use the sidebar form to scrape a URL.")
     else:
-        for url, content in st.session_state.scrape_results.items():
+        for url, content in st.session_state.scrapeResults.items():
             with st.expander(f"Results for {url}", expanded=True):
                 # Split content if it's too long
                 if len(content) > 5000:
-                    content_chunks = splitDomContent(content)
-                    for i, chunk in enumerate(content_chunks):
+                    contentChunks = splitDomContent(content)
+                    for i, chunk in enumerate(contentChunks):
                         st.markdown(f"### Chunk {i+1}")
-                        st.markdown(f"<div class='scrape-result'>{chunk}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='scrapeResult'>{chunk}</div>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"<div class='scrape-result'>{content}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='scrapeResult'>{content}</div>", unsafe_allow_html=True)
                 
                 # Add download button
                 st.download_button(
