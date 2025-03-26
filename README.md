@@ -1,4 +1,4 @@
-# Web Scraper
+# Web Scraper & Product Stock Monitor
 
 A Python web scraper that demonstrates two different approaches to web scraping:
 1. Using `requests` and `BeautifulSoup` for static websites
