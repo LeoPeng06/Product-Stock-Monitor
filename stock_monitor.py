@@ -14,87 +14,107 @@ import time
 from datetime import datetime
 import os
 from dotenv import load_dotenv
-import re
 from urllib.parse import urljoin
 
-# Load environment variables
+# Load environment variables for email configuration
 load_dotenv()
 
 class StockMonitor:
+    """
+    A class to monitor product stock status across different websites.
+    Supports both static and dynamic websites, with email notifications
+    when products become available.
+    """
+    
     def __init__(self):
-        self.emailConfig = {
+        """Initialize the stock monitor with email and browser settings"""
+        # Email configuration for notifications
+        self.emailSettings = {
             'smtp_server': 'smtp.gmail.com',
             'smtp_port': 587,
             'sender_email': os.getenv('SENDER_EMAIL'),
             'sender_password': os.getenv('SENDER_PASSWORD'),
             'recipient_email': os.getenv('RECEIVER_EMAIL')
         }
-        self.chromeOptions = Options()
-        self.chromeOptions.add_argument('--headless')
-        self.chromeOptions.add_argument('--no-sandbox')
-        self.chromeOptions.add_argument('--disable-dev-shm-usage')
-        self.driver = None
         
-        # Initialize Chrome WebDriver
-        self.service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=self.service, options=self.chromeOptions)
+        # Browser settings for web scraping
+        self.browserSettings = Options()
+        self.browserSettings.add_argument('--headless')  # Run browser in background
+        self.browserSettings.add_argument('--no-sandbox')
+        self.browserSettings.add_argument('--disable-dev-shm-usage')
+        self.browser = None
         
-        # Dictionary to store last known stock status
-        self.last_status = {}
+        # Initialize web browser
+        self.browserService = Service(ChromeDriverManager().install())
+        self.browser = webdriver.Chrome(service=self.browserService, options=self.browserSettings)
+        
+        # Track product stock history
+        self.productStockHistory = {}
 
-    def extractImageStatic(self, url):
-        """Extract main product image from static websites"""
+    def findProductImage(self, url, isDynamic=False):
+        """
+        Find the main product image on a webpage.
+        
+        Args:
+            url (str): The webpage URL to search
+            isDynamic (bool): Whether the website uses dynamic loading
+            
+        Returns:
+            str: URL of the product image, or None if not found
+        """
         try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # Common selectors for product images
-                selectors = [
-                    'img[itemprop="image"]',
-                    '.product-image img',
-                    '#product-image img',
-                    '.main-image img',
-                    '.product-main-image img',
-                    'img[alt*="product"]',
-                    'img[alt*="Product"]'
-                ]
-                
-                for selector in selectors:
-                    img = soup.select_one(selector)
-                    if img and img.get('src'):
-                        imgUrl = img['src']
-                        # Convert relative URL to absolute URL
-                        if not imgUrl.startswith(('http://', 'https://')):
-                            imgUrl = urljoin(url, imgUrl)
-                        return imgUrl
-                
-                # Fallback: find first large image
-                for img in soup.find_all('img'):
-                    if img.get('src'):
-                        imgUrl = img['src']
-                        if not imgUrl.startswith(('http://', 'https://')):
-                            imgUrl = urljoin(url, imgUrl)
-                        # Skip small images and icons
-                        if 'icon' not in imgUrl.lower() and 'logo' not in imgUrl.lower():
-                            return imgUrl
-                
-                return None
+            if isDynamic:
+                return self._findImageOnDynamicSite(url)
+            return self._findImageOnStaticSite(url)
         except Exception as e:
-            print(f"Error extracting image: {e}")
+            print(f"Error finding product image: {e}")
             return None
 
-    def extractImageDynamic(self, url):
-        """Extract main product image from dynamic websites"""
+    def _findImageOnStaticSite(self, url):
+        """Find product image on a static website using BeautifulSoup"""
+        response = requests.get(url)
+        if response.status_code != 200:
+            return None
+            
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Common locations for product images
+        imageLocations = [
+            'img[itemprop="image"]',
+            '.product-image img',
+            '#product-image img',
+            '.main-image img',
+            '.product-main-image img',
+            'img[alt*="product"]',
+            'img[alt*="Product"]'
+        ]
+        
+        # Try each location until we find an image
+        for location in imageLocations:
+            image = soup.select_one(location)
+            if image and image.get('src'):
+                return self._makeAbsoluteUrl(url, image['src'])
+        
+        # If no specific product image found, look for any large image
+        for image in soup.find_all('img'):
+            if image.get('src'):
+                imageUrl = self._makeAbsoluteUrl(url, image['src'])
+                if not self._isSmallImage(imageUrl):
+                    return imageUrl
+        
+        return None
+
+    def _findImageOnDynamicSite(self, url):
+        """Find product image on a dynamic website using Selenium"""
         try:
-            if not self.driver:
-                self.driver = webdriver.Chrome(service=self.service, options=self.chromeOptions)
+            if not self.browser:
+                self.browser = webdriver.Chrome(service=self.browserService, options=self.browserSettings)
             
-            self.driver.get(url)
-            wait = WebDriverWait(self.driver, 10)
+            self.browser.get(url)
+            wait = WebDriverWait(self.browser, 10)
             
-            # Common selectors for product images
-            selectors = [
+            # Try common image locations
+            imageLocations = [
                 'img[itemprop="image"]',
                 '.product-image img',
                 '#product-image img',
@@ -104,114 +124,135 @@ class StockMonitor:
                 'img[alt*="Product"]'
             ]
             
-            for selector in selectors:
+            for location in imageLocations:
                 try:
-                    element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
-                    imgUrl = element.get_attribute('src')
-                    if imgUrl:
-                        return imgUrl
+                    image = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, location)))
+                    if image.get_attribute('src'):
+                        return image.get_attribute('src')
                 except:
                     continue
             
-            # Fallback: find first large image
-            images = self.driver.find_elements(By.TAG_NAME, 'img')
-            for img in images:
-                imgUrl = img.get_attribute('src')
-                if imgUrl and 'icon' not in imgUrl.lower() and 'logo' not in imgUrl.lower():
-                    return imgUrl
+            # Look for any large image
+            for image in self.browser.find_elements(By.TAG_NAME, 'img'):
+                imageUrl = image.get_attribute('src')
+                if imageUrl and not self._isSmallImage(imageUrl):
+                    return imageUrl
             
-            return None
-        except Exception as e:
-            print(f"Error extracting image: {e}")
             return None
         finally:
-            if self.driver:
-                self.driver.quit()
-                self.driver = None
+            if self.browser:
+                self.browser.quit()
+                self.browser = None
 
-    def checkStockStatic(self, url, stockIndicator):
-        """Check stock status for static websites"""
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                return stockIndicator.lower() in response.text.lower()
-            return False
-        except Exception as e:
-            print(f"Error checking stock: {e}")
-            return False
-
-    def checkStockDynamic(self, url, stockIndicator, elementSelector):
-        """Check stock status for dynamic websites"""
-        try:
-            if not self.driver:
-                self.driver = webdriver.Chrome(service=self.service, options=self.chromeOptions)
+    def checkStockStatus(self, url, stockIndicator, isDynamic=False, elementSelector=None):
+        """
+        Check if a product is in stock.
+        
+        Args:
+            url (str): The product webpage URL
+            stockIndicator (str): Text that indicates the product is in stock
+            isDynamic (bool): Whether the website uses dynamic loading
+            elementSelector (str): CSS selector for dynamic sites
             
-            self.driver.get(url)
-            wait = WebDriverWait(self.driver, 10)
+        Returns:
+            bool: True if product is in stock, False otherwise
+        """
+        try:
+            if isDynamic:
+                return self._checkDynamicStock(url, stockIndicator, elementSelector)
+            return self._checkStaticStock(url, stockIndicator)
+        except Exception as e:
+            print(f"Error checking stock status: {e}")
+            return False
+
+    def _checkStaticStock(self, url, stockIndicator):
+        """Check stock status on a static website"""
+        response = requests.get(url)
+        if response.status_code == 200:
+            return stockIndicator.lower() in response.text.lower()
+        return False
+
+    def _checkDynamicStock(self, url, stockIndicator, elementSelector):
+        """Check stock status on a dynamic website"""
+        try:
+            if not self.browser:
+                self.browser = webdriver.Chrome(service=self.browserService, options=self.browserSettings)
+            
+            self.browser.get(url)
+            wait = WebDriverWait(self.browser, 10)
             element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, elementSelector)))
             return stockIndicator.lower() in element.text.lower()
-        except Exception as e:
-            print(f"Error checking stock: {e}")
-            return False
         finally:
-            if self.driver:
-                self.driver.quit()
-                self.driver = None
+            if self.browser:
+                self.browser.quit()
+                self.browser = None
 
-    def sendNotification(self, productName, url):
-        """Send email notification when product is in stock"""
+    def notifyStockAvailable(self, productName, url):
+        """
+        Send an email notification when a product becomes available.
+        
+        Args:
+            productName (str): Name of the product
+            url (str): URL of the product
+        """
         try:
-            msg = MIMEMultipart()
-            msg['From'] = self.emailConfig['sender_email']
-            msg['To'] = self.emailConfig['recipient_email']
-            msg['Subject'] = f"Product In Stock Alert: {productName}"
+            email = MIMEMultipart()
+            email['From'] = self.emailSettings['sender_email']
+            email['To'] = self.emailSettings['recipient_email']
+            email['Subject'] = f"Product Available: {productName}"
             
-            body = f"""
-            The product "{productName}" is now in stock!
-            URL: {url}
+            message = f"""
+            Great news! The product "{productName}" is now available!
+            You can find it here: {url}
             """
             
-            msg.attach(MIMEText(body, 'plain'))
+            email.attach(MIMEText(message, 'plain'))
             
-            server = smtplib.SMTP(self.emailConfig['smtp_server'], self.emailConfig['smtp_port'])
-            server.starttls()
-            server.login(self.emailConfig['sender_email'], self.emailConfig['sender_password'])
-            server.send_message(msg)
-            server.quit()
+            with smtplib.SMTP(self.emailSettings['smtp_server'], self.emailSettings['smtp_port']) as server:
+                server.starttls()
+                server.login(self.emailSettings['sender_email'], self.emailSettings['sender_password'])
+                server.send_message(email)
             
             print(f"Notification sent for {productName}")
         except Exception as e:
             print(f"Error sending notification: {e}")
 
-    def monitorProduct(self, productName, url, checkInterval=300, 
+    def startMonitoring(self, productName, url, checkInterval=300, 
                        isDynamic=False, stockIndicator="in stock", 
                        elementSelector=None):
         """
-        Monitor a product's stock status
+        Start monitoring a product's stock status.
+        
+        Args:
+            productName (str): Name of the product to monitor
+            url (str): URL of the product page
+            checkInterval (int): How often to check (in seconds)
+            isDynamic (bool): Whether the website uses dynamic loading
+            stockIndicator (str): Text that indicates the product is in stock
+            elementSelector (str): CSS selector for dynamic sites
         """
         print(f"Starting to monitor {productName}")
         
         while True:
             try:
-                # Check stock status
-                if isDynamic:
-                    isInStock = self.checkStockDynamic(url, stockIndicator, elementSelector)
-                    imageUrl = self.extractImageDynamic(url)
-                else:
-                    isInStock = self.checkStockStatic(url, stockIndicator)
-                    imageUrl = self.extractImageStatic(url)
+                # Check current stock status
+                isAvailable = self.checkStockStatus(url, stockIndicator, isDynamic, elementSelector)
+                productImage = self.findProductImage(url, isDynamic)
                 
-                # Check if status has changed
-                if productName not in self.last_status:
-                    self.last_status[productName] = not isInStock
+                # Update stock history
+                if productName not in self.productStockHistory:
+                    self.productStockHistory[productName] = not isAvailable
                 
-                if isInStock and not self.last_status[productName]:
-                    self.sendNotification(productName, url)
-                    self.last_status[productName] = True
-                elif not isInStock:
-                    self.last_status[productName] = False
+                # Send notification if product just became available
+                if isAvailable and not self.productStockHistory[productName]:
+                    self.notifyStockAvailable(productName, url)
+                    self.productStockHistory[productName] = True
+                elif not isAvailable:
+                    self.productStockHistory[productName] = False
                 
-                print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {productName}: {'In Stock' if isInStock else 'Out of Stock'}")
+                # Log current status
+                status = "Available" if isAvailable else "Out of Stock"
+                print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {productName}: {status}")
                 
                 # Wait before next check
                 time.sleep(checkInterval)
@@ -220,13 +261,23 @@ class StockMonitor:
                 print(f"Error monitoring {productName}: {e}")
                 time.sleep(checkInterval)
 
+    def _makeAbsoluteUrl(self, baseUrl, relativeUrl):
+        """Convert a relative URL to an absolute URL"""
+        if not relativeUrl.startswith(('http://', 'https://')):
+            return urljoin(baseUrl, relativeUrl)
+        return relativeUrl
+
+    def _isSmallImage(self, url):
+        """Check if an image URL likely points to a small image or icon"""
+        return any(term in url.lower() for term in ['icon', 'logo', 'thumb', 'small'])
+
     def __del__(self):
-        """Cleanup Selenium driver"""
-        if self.driver:
-            self.driver.quit()
+        """Clean up browser resources when the monitor is destroyed"""
+        if self.browser:
+            self.browser.quit()
 
 def main():
-    # Example usage
+    """Example usage of the StockMonitor class"""
     monitor = StockMonitor()
     
     # Example products to monitor
@@ -234,29 +285,29 @@ def main():
         {
             "name": "Example Product 1",
             "url": "https://example.com/product1",
-            "is_dynamic": False,
-            "stock_indicator": "in stock",
-            "check_interval": 300  # Check every 5 minutes
+            "isDynamic": False,
+            "stockIndicator": "in stock",
+            "checkInterval": 300  # Check every 5 minutes
         },
         {
             "name": "Example Product 2",
             "url": "https://example.com/product2",
-            "is_dynamic": True,
-            "stock_indicator": "add to cart",
-            "element_selector": "#stock-status",
-            "check_interval": 300
+            "isDynamic": True,
+            "stockIndicator": "add to cart",
+            "elementSelector": "#stock-status",
+            "checkInterval": 300
         }
     ]
     
     # Start monitoring each product
     for product in products:
-        monitor.monitorProduct(
+        monitor.startMonitoring(
             product["name"],
             product["url"],
-            product["check_interval"],
-            product["is_dynamic"],
-            product["stock_indicator"],
-            product.get("element_selector")
+            product["checkInterval"],
+            product["isDynamic"],
+            product["stockIndicator"],
+            product.get("elementSelector")
         )
 
 if __name__ == "__main__":
