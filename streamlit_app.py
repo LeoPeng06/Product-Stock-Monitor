@@ -172,75 +172,113 @@ if not st.session_state.products:
 
 def get_all_product_links(listing_url):
     """Scrape all product links from GameStop's search results page using Selenium."""
+    driver = None
     try:
-        # Set up Chrome options
+        # Set up Chrome options with additional arguments
         chrome_options = Options()
-        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--headless=new')  # Updated headless mode
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-software-rasterizer')
+        chrome_options.add_argument('--ignore-certificate-errors')
+        chrome_options.add_argument('--allow-running-insecure-content')
+        chrome_options.add_argument('--disable-web-security')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
-        # Initialize the Chrome driver
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+        # Initialize the Chrome driver with explicit wait
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver.set_page_load_timeout(30)
         
         # Load the page
+        st.write("Loading page...")
         driver.get(listing_url)
         
-        # Wait for products to load
-        wait = WebDriverWait(driver, 10)
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/Toys-Collectibles/Games/']")))
+        # Wait for products to load with explicit wait
+        wait = WebDriverWait(driver, 20)
+        st.write("Waiting for products to load...")
         
-        # Give extra time for all products to load
-        time.sleep(3)
+        # Try different selectors
+        selectors = [
+            "a[href*='/Toys-Collectibles/Games/']",
+            "div.product-grid-tile a",
+            "a.product-grid-tile-link"
+        ]
         
-        # Get all product links
         product_links = []
-        product_elements = driver.find_elements(By.CSS_SELECTOR, "a[href*='/Toys-Collectibles/Games/']")
+        for selector in selectors:
+            try:
+                elements = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector)))
+                if elements:
+                    for element in elements:
+                        href = element.get_attribute('href')
+                        if href and href not in product_links:
+                            product_links.append(href)
+                    break
+            except:
+                continue
         
-        for element in product_elements:
-            href = element.get_attribute('href')
-            if href and href not in product_links:
-                product_links.append(href)
-        
-        driver.quit()
+        st.write(f"Found {len(product_links)} product links")
         return product_links
         
     except Exception as e:
-        st.error(f"Error fetching product links: {e}")
-        if 'driver' in locals():
-            driver.quit()
+        st.error(f"Error fetching product links: {str(e)}")
         return []
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
 
 def get_product_info(url, monitor):
     """Get product name, image, and stock status from a GameStop product page using Selenium."""
+    driver = None
     try:
-        # Set up Chrome options
+        # Set up Chrome options with additional arguments
         chrome_options = Options()
-        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
         # Initialize the Chrome driver
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver.set_page_load_timeout(30)
         
         # Load the page
         driver.get(url)
         
         # Wait for product details to load
-        wait = WebDriverWait(driver, 10)
+        wait = WebDriverWait(driver, 20)
         
         # Get product name
-        name_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/Toys-Collectibles/Games/']")))
-        name = name_element.text.strip()
+        name = "Unknown Product"
+        try:
+            name_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h1.product-name")))
+            name = name_element.text.strip()
+        except:
+            pass
         
         # Get product image
-        image_element = driver.find_element(By.CSS_SELECTOR, "img.product-image")
-        image_url = image_element.get_attribute('src')
-        
-        # Check stock status based on button text
+        image_url = None
         try:
-            # Look for any of the three button types
-            add_to_cart_button = driver.find_element(By.CSS_SELECTOR, "button.button.is-full-width")
-            button_text = add_to_cart_button.text.strip().lower()
+            image_element = driver.find_element(By.CSS_SELECTOR, "img.product-image")
+            image_url = image_element.get_attribute('src')
+        except:
+            pass
+        
+        # Check stock status
+        status = "Unknown Status"
+        try:
+            button = driver.find_element(By.CSS_SELECTOR, "button.button.is-full-width")
+            button_text = button.text.strip().lower()
             
             if "add to cart" in button_text:
                 status = "In Stock"
@@ -248,20 +286,16 @@ def get_product_info(url, monitor):
                 status = "Preorder Available"
             elif "unavailable" in button_text:
                 status = "Out of Stock"
-            else:
-                status = "Unknown Status"
-                
         except:
-            status = "Status Unknown"
+            pass
         
         # Get price
+        price = "Price not available"
         try:
             price_element = driver.find_element(By.CSS_SELECTOR, "span.price")
             price = price_element.text.strip()
         except:
-            price = "Price not available"
-        
-        driver.quit()
+            pass
         
         return {
             "name": name,
@@ -272,15 +306,19 @@ def get_product_info(url, monitor):
         }
         
     except Exception as e:
-        if 'driver' in locals():
-            driver.quit()
         return {
             "name": url,
             "url": url,
             "imageUrl": None,
-            "status": f"Error: {e}",
+            "status": f"Error: {str(e)}",
             "price": "N/A"
         }
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
 
 # Sidebar navigation and controls
 with st.sidebar:
@@ -385,13 +423,17 @@ with st.sidebar:
             if submit_bulk and listing_url:
                 with st.spinner("Fetching all products..."):
                     product_links = get_all_product_links(listing_url)
-                    st.session_state.bulk_products = []
-                    progress_bar = st.progress(0)
-                    for i, link in enumerate(product_links):
-                        info = get_product_info(link, st.session_state.monitor)
-                        st.session_state.bulk_products.append(info)
-                        progress_bar.progress((i + 1) / len(product_links))
-                    st.success(f"Found {len(st.session_state.bulk_products)} products.")
+                    
+                    if product_links:
+                        st.session_state.bulk_products = []
+                        progress_bar = st.progress(0)
+                        for i, link in enumerate(product_links):
+                            info = get_product_info(link, st.session_state.monitor)
+                            st.session_state.bulk_products.append(info)
+                            progress_bar.progress((i + 1) / len(product_links))
+                        st.success(f"Found {len(st.session_state.bulk_products)} products.")
+                    else:
+                        st.error("No products found. The website structure might have changed or the page might be blocking automated access.")
 
 # Main content area
 if selectedMode == "Stock Monitor":

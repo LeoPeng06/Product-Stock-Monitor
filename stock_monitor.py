@@ -262,7 +262,7 @@ def main():
             "checkInterval": 300  # Check every 5 minutes
         },
         {
-            "name": "Example Product 2",
+            "name": "Example Product 2",    
             "url": "https://example.com/product2",
             "isDynamic": True,
             "stockIndicator": "add to cart",
