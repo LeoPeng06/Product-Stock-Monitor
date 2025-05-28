@@ -15,6 +15,7 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 from urllib.parse import urljoin
+import json
 
 # Load environment variables for email configuration
 load_dotenv()
@@ -51,9 +52,9 @@ class StockMonitor:
         # Track product stock history
         self.productStockHistory = {}
 
-    def findProductImage(self, url, isDynamic=False):
+    def findProductImage(self, url, isDynamic=True):
         """
-        Find the main product image on a webpage.
+        Find the main product image on Pokemon Center.
         
         Args:
             url (str): The webpage URL to search
@@ -63,81 +64,33 @@ class StockMonitor:
             str: URL of the product image, or None if not found
         """
         try:
-            if isDynamic:
-                return self._findImageOnDynamicSite(url)
-            return self._findImageOnStaticSite(url)
-        except Exception as e:
-            print(f"Error finding product image: {e}")
-            return None
-
-    def _findImageOnStaticSite(self, url):
-        """Find product image on a static website using BeautifulSoup"""
-        response = requests.get(url)
-        if response.status_code != 200:
-            return None
-            
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Common locations for product images
-        imageLocations = [
-            'img[itemprop="image"]',
-            '.product-image img',
-            '#product-image img',
-            '.main-image img',
-            '.product-main-image img',
-            'img[alt*="product"]',
-            'img[alt*="Product"]'
-        ]
-        
-        # Try each location until we find an image
-        for location in imageLocations:
-            image = soup.select_one(location)
-            if image and image.get('src'):
-                return self._makeAbsoluteUrl(url, image['src'])
-        
-        # If no specific product image found, look for any large image
-        for image in soup.find_all('img'):
-            if image.get('src'):
-                imageUrl = self._makeAbsoluteUrl(url, image['src'])
-                if not self._isSmallImage(imageUrl):
-                    return imageUrl
-        
-        return None
-
-    def _findImageOnDynamicSite(self, url):
-        """Find product image on a dynamic website using Selenium"""
-        try:
             if not self.browser:
                 self.browser = webdriver.Chrome(service=self.browserService, options=self.browserSettings)
             
             self.browser.get(url)
             wait = WebDriverWait(self.browser, 10)
             
-            # Try common image locations
-            imageLocations = [
-                'img[itemprop="image"]',
-                '.product-image img',
-                '#product-image img',
-                '.main-image img',
-                '.product-main-image img',
-                'img[alt*="product"]',
-                'img[alt*="Product"]'
+            # Pokemon Center specific image selectors
+            image_selectors = [
+                ".product-gallery__image img",  # Main product image
+                ".product-gallery__featured-image img",  # Featured image
+                ".product__image img",  # Alternative image location
+                "[data-testid='product-image'] img"  # Test ID selector
             ]
             
-            for location in imageLocations:
+            for selector in image_selectors:
                 try:
-                    image = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, location)))
-                    if image.get_attribute('src'):
-                        return image.get_attribute('src')
+                    image = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    image_url = image.get_attribute('src')
+                    if image_url and not self._isSmallImage(image_url):
+                        return image_url
                 except:
                     continue
             
-            # Look for any large image
-            for image in self.browser.find_elements(By.TAG_NAME, 'img'):
-                imageUrl = image.get_attribute('src')
-                if imageUrl and not self._isSmallImage(imageUrl):
-                    return imageUrl
-            
+            return None
+        
+        except Exception as e:
+            print(f"Error finding Pokemon Center product image: {e}")
             return None
         finally:
             if self.browser:
@@ -146,7 +99,7 @@ class StockMonitor:
 
     def checkStockStatus(self, url, stockIndicator, isDynamic=False, elementSelector=None):
         """
-        Check if a product is in stock.
+        Check if a product is in stock on Pokemon Center.
         
         Args:
             url (str): The product webpage URL
@@ -158,30 +111,49 @@ class StockMonitor:
             bool: True if product is in stock, False otherwise
         """
         try:
-            if isDynamic:
-                return self._checkDynamicStock(url, stockIndicator, elementSelector)
-            return self._checkStaticStock(url, stockIndicator)
-        except Exception as e:
-            print(f"Error checking stock status: {e}")
-            return False
-
-    def _checkStaticStock(self, url, stockIndicator):
-        """Check stock status on a static website"""
-        response = requests.get(url)
-        if response.status_code == 200:
-            return stockIndicator.lower() in response.text.lower()
-        return False
-
-    def _checkDynamicStock(self, url, stockIndicator, elementSelector):
-        """Check stock status on a dynamic website"""
-        try:
             if not self.browser:
                 self.browser = webdriver.Chrome(service=self.browserService, options=self.browserSettings)
             
             self.browser.get(url)
             wait = WebDriverWait(self.browser, 10)
-            element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, elementSelector)))
-            return stockIndicator.lower() in element.text.lower()
+            
+            # Pokemon Center specific selectors
+            stock_selectors = [
+                ".add-to-cart",  # Main add to cart button
+                "button[data-testid='add-to-cart']",  # Alternative button selector
+                ".product-details__add-to-cart"  # Another possible location
+            ]
+            
+            for selector in stock_selectors:
+                try:
+                    element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    button_text = element.text.lower()
+                    # Check if the button indicates the item is in stock
+                    if "add to cart" in button_text and "out of stock" not in button_text:
+                        return True
+                except:
+                    continue
+            
+            # Check for out of stock indicators
+            out_of_stock_selectors = [
+                ".out-of-stock",
+                ".product-details__out-of-stock",
+                "[data-testid='out-of-stock']"
+            ]
+            
+            for selector in out_of_stock_selectors:
+                try:
+                    element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    if element.is_displayed():
+                        return False
+                except:
+                    continue
+            
+            return False  # Default to out of stock if we can't determine status
+        
+        except Exception as e:
+            print(f"Error checking Pokemon Center stock: {e}")
+            return False
         finally:
             if self.browser:
                 self.browser.quit()
@@ -309,6 +281,37 @@ def main():
             product["stockIndicator"],
             product.get("elementSelector")
         )
+
+def loadProducts():
+    """
+    Load products from the JSON file.
+    
+    Returns:
+        list: List of products, or empty list if file is empty or invalid
+    """
+    try:
+        if os.path.exists('products.json'):
+            with open('products.json', 'r') as f:
+                content = f.read().strip()
+                if content:
+                    products = json.loads(content)
+                    # Validate that products is a list and each item is a dictionary
+                    if isinstance(products, list):
+                        validated_products = []
+                        for p in products:
+                            if isinstance(p, dict) and 'name' in p:
+                                validated_products.append(p)
+                            else:
+                                print(f"Skipping invalid product entry: {p}")
+                        return validated_products
+                    return []
+        return []
+    except json.JSONDecodeError:
+        print("Error reading products.json. Starting with empty list.")
+        return []
+    except Exception as e:
+        print(f"Error loading products: {e}")
+        return []
 
 if __name__ == "__main__":
     main() 
