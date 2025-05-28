@@ -1,5 +1,24 @@
-# Environment variables
+# Virtual Environments
+ai/
+venv/
+ENV/
 .env
+.venv/
+env/
+pythonenv*/
+.python-version
+
+# Selenium
+chromedriver
+chromedriver.exe
+geckodriver
+geckodriver.exe
+*.log
+webdriver/
+drivers/
+.cache/
+cpython
+webdriver_manager/
 
 # Python
 __pycache__/
@@ -22,11 +41,6 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual Environment
-venv/
-ENV/
-env/
 
 # IDE
 .idea/
